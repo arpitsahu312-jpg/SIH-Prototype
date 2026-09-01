@@ -70,9 +70,8 @@ def initial_state() -> dict:
 state: dict = initial_state()
 # component_id -> datetime when status auto-recovers
 active_faults: dict[str, datetime] = {}
-clients: set[WebSocket] = set()
-lock = asyncio.Lock()
-
+fuel_history: list[dict] = []
+MAX_HISTORY_POINTS = 40
 
 class FaultInjectBody(BaseModel):
     component: ComponentId
@@ -226,6 +225,13 @@ async def telemetry_loop() -> None:
             apply_jitter(faulted_ids)
             check_low_stock()
             state["timestamp"] = iso_now()
+            fuel_history.append({
+                "timestamp": state["timestamp"],
+                "fuelLevel": state["generator"]["fuelLevel"],
+                "output": state["generator"]["output"],
+            })
+            if len(fuel_history) > MAX_HISTORY_POINTS:
+                fuel_history.pop(0)
 
         await broadcast_state()
 
@@ -252,6 +258,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/energy/history")
+async def get_energy_history():
+    return fuel_history
+clients: set[WebSocket] = set()
+lock = asyncio.Lock()
 
 
 @app.websocket("/ws/telemetry")
@@ -381,6 +393,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/energy/history")
+async def get_energy_history():
+    return fuel_history
 
 @app.get("/health")
 async def health():
