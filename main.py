@@ -224,6 +224,7 @@ async def telemetry_loop() -> None:
                     faulted_ids.add(candidate)
 
             apply_jitter(faulted_ids)
+            check_low_stock()
             state["timestamp"] = iso_now()
 
         await broadcast_state()
@@ -430,3 +431,63 @@ async def telemetry_ws(websocket: WebSocket):
         pass
     finally:
         clients.discard(websocket)
+
+class InventoryItem(BaseModel):
+    id: str
+    name: str
+    category: Literal["food", "medical", "spare_parts"]
+    quantity: float
+    unit: str
+    low_stock_threshold: float
+
+inventory: list[dict] = [
+    {"id": "food-1", "name": "Freeze-dried rations", "category": "food", "quantity": 340, "unit": "kg", "low_stock_threshold": 100},
+    {"id": "food-2", "name": "Drinking water reserves", "category": "food", "quantity": 2200, "unit": "L", "low_stock_threshold": 500},
+    {"id": "med-1", "name": "Antibiotics", "category": "medical", "quantity": 45, "unit": "units", "low_stock_threshold": 20},
+    {"id": "med-2", "name": "Trauma kits", "category": "medical", "quantity": 8, "unit": "kits", "low_stock_threshold": 3},
+    {"id": "part-1", "name": "Generator fuel filters", "category": "spare_parts", "quantity": 12, "unit": "units", "low_stock_threshold": 5},
+    {"id": "part-2", "name": "Pipeline seal kits", "category": "spare_parts", "quantity": 6, "unit": "units", "low_stock_threshold": 4},
+]
+
+tickets: list[dict] = []
+ticket_counter = 0
+
+def check_low_stock() -> None:
+    global ticket_counter
+    existing_ticket_items = {t["item_id"] for t in tickets if t["status"] == "open"}
+    for item in inventory:
+        if item["quantity"] <= item["low_stock_threshold"] and item["id"] not in existing_ticket_items:
+            ticket_counter += 1
+            tickets.append({
+                "id": f"TICKET-{ticket_counter}",
+                "item_id": item["id"],
+                "item_name": item["name"],
+                "message": f"Low stock: {item['name']} at {item['quantity']}{item['unit']} (threshold {item['low_stock_threshold']}{item['unit']})",
+                "status": "open",
+                "created_at": iso_now(),
+            })
+
+@app.get("/inventory")
+async def get_inventory():
+    return inventory
+
+@app.post("/inventory/{item_id}/consume")
+async def consume_inventory(item_id: str, amount: float):
+    item = next((i for i in inventory if i["id"] == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item["quantity"] = max(0, item["quantity"] - amount)
+    check_low_stock()
+    return item
+
+@app.get("/tickets")
+async def get_tickets():
+    return tickets
+
+@app.post("/tickets/{ticket_id}/resolve")
+async def resolve_ticket(ticket_id: str):
+    ticket = next((t for t in tickets if t["id"] == ticket_id), None)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket["status"] = "resolved"
+    return ticket
