@@ -213,7 +213,8 @@ async def telemetry_loop() -> None:
 
             apply_jitter(faulted_ids)
             check_low_stock()
-
+            if not satellite_online:
+                pending_sync_log.append({"timestamp": iso_now(), "type": "telemetry_tick"})
             payload = snapshot()
             fuel_history.append({
                 "timestamp": payload["timestamp"],
@@ -439,3 +440,39 @@ async def predict_maintenance():
     )
     level = "critical" if risk >= 70 else "elevated" if risk >= 35 else "nominal"
     return {"riskPercent": risk, "level": level, "timestamp": iso_now()}
+
+# --- Offline/sync simulation ---
+satellite_online: bool = True
+pending_sync_log: list[dict] = []
+sync_history: list[dict] = []
+
+
+class ConnectivityBody(BaseModel):
+    online: bool
+
+
+@app.post("/connectivity/set")
+async def set_connectivity(body: ConnectivityBody):
+    global satellite_online
+    was_offline = not satellite_online
+    satellite_online = body.online
+
+    if satellite_online and was_offline and pending_sync_log:
+        synced_count = len(pending_sync_log)
+        sync_history.append({
+            "timestamp": iso_now(),
+            "changes_synced": synced_count,
+        })
+        pending_sync_log.clear()
+        return {"online": True, "synced": synced_count, "message": f"Sync complete: {synced_count} changes pushed to NCPOR cloud"}
+
+    return {"online": satellite_online, "synced": 0, "message": "Satellite link down — operating in offline edge mode" if not satellite_online else "Already online"}
+
+
+@app.get("/connectivity/status")
+async def get_connectivity_status():
+    return {
+        "online": satellite_online,
+        "pendingChanges": len(pending_sync_log),
+        "lastSync": sync_history[-1] if sync_history else None,
+    }
