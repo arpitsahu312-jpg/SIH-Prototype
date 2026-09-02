@@ -9,23 +9,26 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+import numpy as np
+import joblib
 import chromadb
 from sentence_transformers import SentenceTransformer
 import ollama
 
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 TICK_SECONDS = 3.0
 FAULT_CHANCE = 0.05
 FAULT_RECOVER_MIN_S = 15.0
 FAULT_RECOVER_MAX_S = 20.0
+MAX_HISTORY_POINTS = 40
 
-ROOM_BASELINES = {
-    "room-1": 21.5,
-    "room-2": 22.0,
-    "room-3": 20.8,
-}
+ROOM_BASELINES = {"room-1": 21.5, "room-2": 22.0, "room-3": 20.8}
 GENERATOR_FUEL_BASE = 87.0
 GENERATOR_OUTPUT_BASE = 42.3
 PIPELINE_PRESSURE_BASE = 4.2
@@ -34,6 +37,7 @@ ENV_TEMP_BASE = -32.0
 
 ComponentId = Literal["generator", "pipeline", "room-1", "room-2", "room-3"]
 Severity = Literal["warning", "critical"]
+VALID_COMPONENTS = {"generator", "pipeline", "room-1", "room-2", "room-3"}
 
 
 def utcnow() -> datetime:
@@ -55,26 +59,19 @@ def initial_state() -> dict:
             {"id": "room-2", "status": "normal", "temperature": ROOM_BASELINES["room-2"]},
             {"id": "room-3", "status": "normal", "temperature": ROOM_BASELINES["room-3"]},
         ],
-        "generator": {
-            "status": "normal",
-            "fuelLevel": GENERATOR_FUEL_BASE,
-            "output": GENERATOR_OUTPUT_BASE,
-        },
+        "generator": {"status": "normal", "fuelLevel": GENERATOR_FUEL_BASE, "output": GENERATOR_OUTPUT_BASE},
         "pipeline": {"status": "normal", "pressure": PIPELINE_PRESSURE_BASE},
-        "environment": {
-            "windSpeed": ENV_WIND_BASE,
-            "temperature": ENV_TEMP_BASE,
-            "blizzard": False,
-        },
+        "environment": {"windSpeed": ENV_WIND_BASE, "temperature": ENV_TEMP_BASE, "blizzard": False},
         "timestamp": iso_now(),
     }
 
 
 state: dict = initial_state()
-# component_id -> datetime when status auto-recovers
 active_faults: dict[str, datetime] = {}
 fuel_history: list[dict] = []
-MAX_HISTORY_POINTS = 40
+clients: set[WebSocket] = set()
+lock = asyncio.Lock()
+
 
 class FaultInjectBody(BaseModel):
     component: ComponentId
@@ -92,42 +89,21 @@ def apply_jitter(faulted: set[str]) -> None:
     for room in state["rooms"]:
         if room["id"] in faulted:
             continue
-        room["temperature"] = round(
-            clamp(room["temperature"] + random.uniform(-0.12, 0.12), 18.0, 24.5),
-            2,
-        )
+        room["temperature"] = round(clamp(room["temperature"] + random.uniform(-0.12, 0.12), 18.0, 24.5), 2)
 
     gen = state["generator"]
     if "generator" not in faulted:
-        gen["fuelLevel"] = round(
-            clamp(gen["fuelLevel"] + random.uniform(-0.25, 0.08), 40.0, 98.0),
-            1,
-        )
-        gen["output"] = round(
-            clamp(gen["output"] + random.uniform(-0.35, 0.35), 35.0, 50.0),
-            1,
-        )
+        gen["fuelLevel"] = round(clamp(gen["fuelLevel"] + random.uniform(-0.25, 0.08), 40.0, 98.0), 1)
+        gen["output"] = round(clamp(gen["output"] + random.uniform(-0.35, 0.35), 35.0, 50.0), 1)
 
     pipe = state["pipeline"]
     if "pipeline" not in faulted:
-        pipe["pressure"] = round(
-            clamp(pipe["pressure"] + random.uniform(-0.08, 0.08), 3.4, 5.0),
-            2,
-        )
+        pipe["pressure"] = round(clamp(pipe["pressure"] + random.uniform(-0.08, 0.08), 3.4, 5.0), 2)
 
     env = state["environment"]
-    env["windSpeed"] = round(
-        clamp(env["windSpeed"] + random.uniform(-1.2, 1.2), 4.0, 45.0),
-        1,
-    )
-    env["temperature"] = round(
-        clamp(env["temperature"] + random.uniform(-0.6, 0.6), -55.0, -10.0),
-        1,
-    )
-    if env["windSpeed"] > 32:
-        env["blizzard"] = True
-    elif env["windSpeed"] < 22:
-        env["blizzard"] = False
+    env["windSpeed"] = round(clamp(env["windSpeed"] + random.uniform(-1.2, 1.2), 4.0, 45.0), 1)
+    env["temperature"] = round(clamp(env["temperature"] + random.uniform(-0.6, 0.6), -55.0, -10.0), 1)
+    env["blizzard"] = env["windSpeed"] > 32 if env["windSpeed"] > 32 else (False if env["windSpeed"] < 22 else env["blizzard"])
 
 
 def apply_fault_values(component_id: str, severity: Severity) -> None:
@@ -138,10 +114,7 @@ def apply_fault_values(component_id: str, severity: Severity) -> None:
         if not room:
             return
         room["status"] = severity
-        if critical:
-            room["temperature"] = round(random.uniform(31.0, 36.5), 1)
-        else:
-            room["temperature"] = round(random.uniform(26.0, 28.5), 1)
+        room["temperature"] = round(random.uniform(31.0, 36.5) if critical else random.uniform(26.0, 28.5), 1)
         return
 
     if component_id == "generator":
@@ -159,15 +132,9 @@ def apply_fault_values(component_id: str, severity: Severity) -> None:
         pipe = state["pipeline"]
         pipe["status"] = severity
         if critical:
-            pipe["pressure"] = round(
-                random.choice([random.uniform(0.4, 1.1), random.uniform(8.8, 11.5)]),
-                2,
-            )
+            pipe["pressure"] = round(random.choice([random.uniform(0.4, 1.1), random.uniform(8.8, 11.5)]), 2)
         else:
-            pipe["pressure"] = round(
-                random.choice([random.uniform(1.8, 2.4), random.uniform(6.4, 7.4)]),
-                2,
-            )
+            pipe["pressure"] = round(random.choice([random.uniform(1.8, 2.4), random.uniform(6.4, 7.4)]), 2)
 
 
 def restore_component(component_id: str) -> None:
@@ -176,8 +143,7 @@ def restore_component(component_id: str) -> None:
         if room:
             room["status"] = "normal"
             room["temperature"] = ROOM_BASELINES.get(component_id, 21.5)
-            return
-        
+        return
     if component_id == "generator":
         gen = state["generator"]
         gen["status"] = "normal"
@@ -190,132 +156,7 @@ def restore_component(component_id: str) -> None:
         pipe["pressure"] = PIPELINE_PRESSURE_BASE
 
 
-async def broadcast_state() -> None:
-    disconnected: list[WebSocket] = []
-    for ws in tuple(clients):
-        try:
-            await ws.send_json(state)
-        except (WebSocketDisconnect, RuntimeError):
-            disconnected.append(ws)
-    for ws in disconnected:
-        clients.discard(ws)
-
-
-async def telemetry_loop() -> None:
-    while True:
-        await asyncio.sleep(TICK_SECONDS)
-        async with lock:
-            now = utcnow()
-
-            expired = [cid for cid, until in active_faults.items() if now >= until]
-            for cid in expired:
-                restore_component(cid)
-                del active_faults[cid]
-
-            faulted_ids = set(active_faults.keys())
-
-            if random.random() < FAULT_CHANCE:
-                candidate = random.choice(
-                    ["generator", "pipeline", "room-1", "room-2", "room-3"]
-                )
-                if candidate not in faulted_ids:
-                    severity: Severity = random.choice(["warning", "critical"])
-                    apply_fault_values(candidate, severity)
-                    recover_in = random.uniform(FAULT_RECOVER_MIN_S, FAULT_RECOVER_MAX_S)
-                    active_faults[candidate] = now + timedelta(seconds=recover_in)
-                    faulted_ids.add(candidate)
-
-            apply_jitter(faulted_ids)
-            check_low_stock()
-            state["timestamp"] = iso_now()
-            fuel_history.append({
-                "timestamp": state["timestamp"],
-                "fuelLevel": state["generator"]["fuelLevel"],
-                "output": state["generator"]["output"],
-            })
-            if len(fuel_history) > MAX_HISTORY_POINTS:
-                fuel_history.pop(0)
-
-        await broadcast_state()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(telemetry_loop())
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-
-app = FastAPI(title="Antarctic Edge Server", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/energy/history")
-async def get_energy_history():
-    return fuel_history
-clients: set[WebSocket] = set()
-lock = asyncio.Lock()
-
-
-@app.websocket("/ws/telemetry")
-async def websocket_telemetry(websocket: WebSocket):
-    await websocket.accept()
-    clients.add(websocket)
-    try:
-        await websocket.send_json(state)
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        clients.discard(websocket)
-
-
-@app.post("/fault/inject")
-async def inject_fault(body: FaultInjectBody):
-    async with lock:
-        apply_fault_values(body.component, body.severity)
-        recover_in = random.uniform(FAULT_RECOVER_MIN_S, FAULT_RECOVER_MAX_S)
-        active_faults[body.component] = utcnow() + timedelta(seconds=recover_in)
-        state["timestamp"] = iso_now()
-        snapshot = dict(state)
-    await broadcast_state()
-    return snapshot
-
-
-@app.post("/fault/clear/{component_id}")
-async def clear_fault(component_id: ComponentId):
-    async with lock:
-        if component_id not in active_faults and (
-            (component_id.startswith("room-") and find_room(component_id) and find_room(component_id)["status"] == "normal")
-            or (component_id == "generator" and state["generator"]["status"] == "normal")
-            or (component_id == "pipeline" and state["pipeline"]["status"] == "normal")
-        ):
-            raise HTTPException(status_code=400, detail=f"{component_id} has no active fault")
-        restore_component(component_id)
-        active_faults.pop(component_id, None)
-        state["timestamp"] = iso_now()
-        snapshot = dict(state)
-    await broadcast_state()
-    return snapshot
-
-
-@app.get("/state")
-async def get_state():
-    return state
-
-
-def inject_fault(component_id: str, severity: Severity) -> None:
+def inject_fault_component(component_id: str, severity: Severity) -> None:
     apply_fault_values(component_id, severity)
     delay = random.uniform(FAULT_RECOVER_MIN_S, FAULT_RECOVER_MAX_S)
     active_faults[component_id] = utcnow() + timedelta(seconds=delay)
@@ -330,17 +171,12 @@ def recover_expired_faults() -> None:
 
 
 def pick_random_healthy_component() -> str | None:
-    candidates: list[str] = []
-    for room in state["rooms"]:
-        if room["id"] not in active_faults:
-            candidates.append(room["id"])
+    candidates = [r["id"] for r in state["rooms"] if r["id"] not in active_faults]
     if "generator" not in active_faults:
         candidates.append("generator")
     if "pipeline" not in active_faults:
         candidates.append("pipeline")
-    if not candidates:
-        return None
-    return random.choice(candidates)
+    return random.choice(candidates) if candidates else None
 
 
 def snapshot() -> dict:
@@ -367,24 +203,40 @@ async def telemetry_loop() -> None:
         await asyncio.sleep(TICK_SECONDS)
         async with lock:
             recover_expired_faults()
-            apply_jitter(set(active_faults.keys()))
+            faulted_ids = set(active_faults.keys())
+
             if random.random() < FAULT_CHANCE:
                 target = pick_random_healthy_component()
                 if target:
-                    inject_fault(target, random.choice(["warning", "critical"]))
+                    inject_fault_component(target, random.choice(["warning", "critical"]))
+                    faulted_ids.add(target)
+
+            apply_jitter(faulted_ids)
+            check_low_stock()
+
             payload = snapshot()
+            fuel_history.append({
+                "timestamp": payload["timestamp"],
+                "fuelLevel": payload["generator"]["fuelLevel"],
+                "output": payload["generator"]["output"],
+            })
+            if len(fuel_history) > MAX_HISTORY_POINTS:
+                fuel_history.pop(0)
+
         await broadcast(payload)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     task = asyncio.create_task(telemetry_loop())
-    yield
-    task.cancel()
     try:
-        await task
-    except asyncio.CancelledError:
-        pass
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="antarctic-edge-server", lifespan=lifespan)
@@ -397,10 +249,6 @@ app.add_middleware(
 )
 
 
-@app.get("/energy/history")
-async def get_energy_history():
-    return fuel_history
-
 @app.get("/health")
 async def health():
     return {"ok": True}
@@ -412,12 +260,17 @@ async def get_state():
         return snapshot()
 
 
+@app.get("/energy/history")
+async def get_energy_history():
+    return fuel_history
+
+
 @app.post("/fault/inject")
 async def fault_inject(body: FaultInjectBody):
     async with lock:
         if body.component.startswith("room-") and not find_room(body.component):
             raise HTTPException(status_code=404, detail="Unknown room")
-        inject_fault(body.component, body.severity)
+        inject_fault_component(body.component, body.severity)
         payload = snapshot()
     await broadcast(payload)
     return payload
@@ -425,8 +278,7 @@ async def fault_inject(body: FaultInjectBody):
 
 @app.post("/fault/clear/{component_id}")
 async def fault_clear(component_id: str):
-    valid = {"generator", "pipeline", "room-1", "room-2", "room-3"}
-    if component_id not in valid:
+    if component_id not in VALID_COMPONENTS:
         raise HTTPException(status_code=404, detail="Unknown component")
     async with lock:
         restore_component(component_id)
@@ -451,6 +303,10 @@ async def telemetry_ws(websocket: WebSocket):
     finally:
         clients.discard(websocket)
 
+
+# ---------------------------------------------------------------------------
+# Inventory / logistics
+# ---------------------------------------------------------------------------
 class InventoryItem(BaseModel):
     id: str
     name: str
@@ -458,6 +314,7 @@ class InventoryItem(BaseModel):
     quantity: float
     unit: str
     low_stock_threshold: float
+
 
 inventory: list[dict] = [
     {"id": "food-1", "name": "Freeze-dried rations", "category": "food", "quantity": 340, "unit": "kg", "low_stock_threshold": 100},
@@ -470,6 +327,7 @@ inventory: list[dict] = [
 
 tickets: list[dict] = []
 ticket_counter = 0
+
 
 def check_low_stock() -> None:
     global ticket_counter
@@ -486,9 +344,11 @@ def check_low_stock() -> None:
                 "created_at": iso_now(),
             })
 
+
 @app.get("/inventory")
 async def get_inventory():
     return inventory
+
 
 @app.post("/inventory/{item_id}/consume")
 async def consume_inventory(item_id: str, amount: float):
@@ -499,9 +359,11 @@ async def consume_inventory(item_id: str, amount: float):
     check_low_stock()
     return item
 
+
 @app.get("/tickets")
 async def get_tickets():
     return tickets
+
 
 @app.post("/tickets/{ticket_id}/resolve")
 async def resolve_ticket(ticket_id: str):
@@ -512,11 +374,12 @@ async def resolve_ticket(ticket_id: str):
     return ticket
 
 
-# --- RAG setup (loaded once at startup) ---
+# ---------------------------------------------------------------------------
+# RAG — offline station manual assistant
+# ---------------------------------------------------------------------------
 _chroma_client = chromadb.PersistentClient(path="./chroma_db")
 _collection = _chroma_client.get_collection("manuals")
 _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-
 OLLAMA_MODEL = "llama3.2:3b"
 
 
@@ -533,7 +396,6 @@ def retrieve_chunks(question: str, top_k: int = 3) -> list[str]:
 @app.post("/ask-manual")
 async def ask_manual(body: AskManualBody):
     chunks = retrieve_chunks(body.question)
-
     if not chunks:
         return {"answer": "No relevant information found in the station manuals.", "sources": []}
 
@@ -548,8 +410,32 @@ Operator question: {body.question}
 Answer concisely and practically:"""
 
     response = ollama.generate(model=OLLAMA_MODEL, prompt=prompt)
+    return {"answer": response["response"], "sources": chunks}
 
-    return {
-        "answer": response["response"],
-        "sources": chunks,
-    }
+
+# ---------------------------------------------------------------------------
+# Predictive maintenance
+# ---------------------------------------------------------------------------
+_maintenance_model = joblib.load("maintenance_model.pkl")
+
+
+def risk_score(fuel: float, output: float, pressure: float, vibration: float, room_temp: float) -> float:
+    X = np.array([[fuel, output, pressure, vibration, room_temp]])
+    raw_score = _maintenance_model.decision_function(X)[0]
+    risk = max(0.0, min(100.0, (0.5 - raw_score) * 100))
+    return round(risk, 1)
+
+
+@app.get("/predict-maintenance")
+async def predict_maintenance():
+    gen = state["generator"]
+    pipe = state["pipeline"]
+    avg_room_temp = sum(r["temperature"] for r in state["rooms"]) / len(state["rooms"])
+    simulated_vibration = round(0.03 + max(0, (50 - gen["output"]) / 500), 3)
+
+    risk = risk_score(
+        fuel=gen["fuelLevel"], output=gen["output"], pressure=pipe["pressure"],
+        vibration=simulated_vibration, room_temp=avg_room_temp,
+    )
+    level = "critical" if risk >= 70 else "elevated" if risk >= 35 else "nominal"
+    return {"riskPercent": risk, "level": level, "timestamp": iso_now()}
