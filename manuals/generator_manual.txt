@@ -1,0 +1,41 @@
+Helios-44 Liquid Transfer Station: Operations and Maintenance Manual
+1. General Safety and Emergency Shutoffs
+This manual outlines the standard operating procedures for the Helios-44 Liquid Transfer Station. All personnel must complete Level 2 Mechanical Safety Training before operating the main control console or performing preventative maintenance on the primary flow loop.
+
+Personal Protective Equipment (PPE), including Class III arc-flash suits, steel-toed boots, and high-visibility vests, must be worn at all times while inside the pump house enclosure. Hearing protection is mandatory when the acoustic shielding is breached.
+
+In the event of an uncontrolled pressure event or fire, operators must immediately strike the primary Emergency Shutdown (ESD) button located at either the main console or the exterior blast door. The ESD system will instantly isolate the main intake valves, vent residual line pressure to the flare stack, and deploy the halon fire suppression system if thermal spikes are detected.
+
+2. Standard Startup Procedure
+Before initiating a cold start, operators must perform a visual walkaround of the primary manifold. Check for visible fluid leaks, ensure all manual bypass valves are in the closed (perpendicular) position, and verify that the localized pressure gauges read absolute zero.
+
+Once the physical inspection is complete, engage the auxiliary power unit (APU) from the control room. Wait for the APU diagnostic screen to display a green "Ready" indicator, which confirms that telemetry sensors and Variable Frequency Drive (VFD) controllers are online and communicating.
+
+Initiate the priming sequence by opening the suction valve to 15% capacity. Run the low-speed prime pump for exactly 120 seconds to evacuate air from the main volute. Listen for the distinct change in pitch indicating fluid has reached the impeller housing.
+
+Finally, engage the main drive motor. The VFD will ramp up the RPM linearly over a 45-second period to prevent water hammer. Do not leave the control station until the flow rate stabilizes at the target setpoint and line pressure remains steady for at least five minutes.
+
+3. Fuel Filter Replacement Protocol
+The primary diesel fuel filter for the APU must be replaced every 500 operating hours or when the differential pressure across the filter housing exceeds 15 PSI. Never attempt to replace the filter while the APU is running or under pressure.
+
+First, electronically lock out the APU at the breaker panel. Manually close the upstream fuel supply valve and the downstream return valve. Open the small petcock valve at the base of the filter housing to drain the residual fuel into an approved hazardous waste container.
+
+Use a strap wrench to loosen the filter housing canister, turning counter-clockwise. Carefully lower the canister to avoid spilling the remaining fuel. Remove the spent paper element and thoroughly wipe out the inside of the housing with a lint-free cloth, ensuring no metallic debris is present.
+
+Lubricate the new O-ring with a few drops of clean diesel fuel before seating it on the canister threads. Insert the new filter element, thread the housing back onto the manifold, and hand-tighten only. Close the petcock, open the supply and return valves, and cycle the manual primer button until resistance is felt to bleed air from the line.
+
+4. Common Fault Codes
+Fault Code 104: Low Intake Pressure. This code triggers when the incoming fluid pressure drops below 20 PSI for more than ten seconds. It automatically reduces the main drive speed to 30% to prevent cavitation. It is most often caused by a blocked upstream strainer or a failing supply pump.
+
+Fault Code 220: Thermal Overload. The stator temperature in the main drive motor has exceeded 140°C. The system will initiate an automatic shutdown. Operators must allow a minimum 45-minute cooling period and inspect the motor cooling fins for debris before attempting a restart.
+
+Fault Code 315: Vibration Anomaly. The accelerometer mounted on the main bearing housing has detected vibration exceeding 0.15 inches per second. This often indicates impending bearing failure, shaft misalignment, or a severely unbalanced impeller. Maintenance must be dispatched immediately.
+
+Fault Code 409: Telemetry Loss. The main PLC has lost communication with the remote sensor array on the discharge manifold. The station will maintain its current speed but will lock out remote adjustment. Check the fiber-optic trunk line and the 24V DC power supply to the sensor node.
+
+5. Troubleshooting Low Output
+If the station is running at commanded RPM but failing to meet the target flow rate, begin by inspecting the primary intake strainers. A gradual drop in output over several days is almost always indicative of biological fouling or sediment buildup on the mesh screens.
+
+If the strainers are clear, verify the Variable Frequency Drive (VFD) parameters. A localized power surge can sometimes cause the VFD to revert to default factory limitations, capping the maximum hertz output and artificially limiting the pump's mechanical speed.
+
+Finally, if output drops suddenly during operation accompanied by a hissing noise, suspect a failure of the mechanical shaft seal. A compromised seal will allow internal fluid bypass, recirculating high-pressure output back to the low-pressure suction side rather than pushing it down the pipeline. Inspect the weep hole beneath the bearing housing for excessive leakage.
