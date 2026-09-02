@@ -476,3 +476,30 @@ async def get_connectivity_status():
         "pendingChanges": len(pending_sync_log),
         "lastSync": sync_history[-1] if sync_history else None,
     }
+
+
+# --- Zero-waste / carbon tracking (derived from existing state, no new sensors) ---
+CARBON_KG_PER_KWH = 0.82  # rough diesel-generator emission factor for demo purposes
+waste_accumulated_kg: float = 12.4  # starting baseline, drifts up over time
+station_start_time = utcnow()
+
+
+@app.get("/sustainability")
+async def get_sustainability():
+    global waste_accumulated_kg
+    output_kw = state["generator"]["output"]
+    hours_running = (utcnow() - station_start_time).total_seconds() / 3600
+
+    estimated_carbon_kg = round(output_kw * hours_running * CARBON_KG_PER_KWH, 1)
+    waste_accumulated_kg += random.uniform(0.0, 0.03)  # slow organic drift
+
+    treaty_limit_kg = 200.0  # fictional Antarctic Treaty waste-storage threshold for this demo
+    waste_pct = round((waste_accumulated_kg / treaty_limit_kg) * 100, 1)
+
+    return {
+        "estimatedCarbonKg": estimated_carbon_kg,
+        "wasteAccumulatedKg": round(waste_accumulated_kg, 2),
+        "wasteCapacityPercent": min(100.0, waste_pct),
+        "treatyLimitKg": treaty_limit_kg,
+        "hoursRunning": round(hours_running, 2),
+    }
