@@ -12,6 +12,9 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import chromadb
+from sentence_transformers import SentenceTransformer
+import ollama
 
 TICK_SECONDS = 3.0
 FAULT_CHANCE = 0.05
@@ -507,3 +510,46 @@ async def resolve_ticket(ticket_id: str):
         raise HTTPException(status_code=404, detail="Ticket not found")
     ticket["status"] = "resolved"
     return ticket
+
+
+# --- RAG setup (loaded once at startup) ---
+_chroma_client = chromadb.PersistentClient(path="./chroma_db")
+_collection = _chroma_client.get_collection("manuals")
+_embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+OLLAMA_MODEL = "llama3.2:3b"
+
+
+class AskManualBody(BaseModel):
+    question: str
+
+
+def retrieve_chunks(question: str, top_k: int = 3) -> list[str]:
+    query_embedding = _embedder.encode([question]).tolist()
+    results = _collection.query(query_embeddings=query_embedding, n_results=top_k)
+    return results["documents"][0] if results["documents"] else []
+
+
+@app.post("/ask-manual")
+async def ask_manual(body: AskManualBody):
+    chunks = retrieve_chunks(body.question)
+
+    if not chunks:
+        return {"answer": "No relevant information found in the station manuals.", "sources": []}
+
+    context = "\n\n---\n\n".join(chunks)
+    prompt = f"""You are an offline technical assistant for an Antarctic research station. Answer the operator's question using ONLY the manual excerpts below. If the excerpts don't contain the answer, say so clearly — do not guess or make up information.
+
+Manual excerpts:
+{context}
+
+Operator question: {body.question}
+
+Answer concisely and practically:"""
+
+    response = ollama.generate(model=OLLAMA_MODEL, prompt=prompt)
+
+    return {
+        "answer": response["response"],
+        "sources": chunks,
+    }
