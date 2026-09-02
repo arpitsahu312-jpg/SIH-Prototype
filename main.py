@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import pandas as pd
 import numpy as np
 import joblib
 import chromadb
@@ -421,11 +422,13 @@ _maintenance_model = joblib.load("maintenance_model.pkl")
 
 
 def risk_score(fuel: float, output: float, pressure: float, vibration: float, room_temp: float) -> float:
-    X = np.array([[fuel, output, pressure, vibration, room_temp]])
+    X = pd.DataFrame(
+        [[fuel, output, pressure, vibration, room_temp]],
+        columns=["fuelLevel", "generatorOutput", "pipelinePressure", "vibration", "roomTemp"],
+    )
     raw_score = _maintenance_model.decision_function(X)[0]
     risk = max(0.0, min(100.0, (0.5 - raw_score) * 100))
     return round(risk, 1)
-
 
 @app.get("/predict-maintenance")
 async def predict_maintenance():
