@@ -46,12 +46,14 @@ interface InternalStationState {
   environment: BackendTelemetry["environment"];
   timestamp: string | null;
   connected: boolean;
+  hoveredRoom: RoomId | null;
 }
 
 export interface StationStore {
   stationState: InternalStationState;
   setConnected: (connected: boolean) => void;
   applyTelemetry: (data: BackendTelemetry) => void;
+  setHoveredRoom: (id: RoomId | null) => void;
 }
 
 const initialState: InternalStationState = {
@@ -63,6 +65,7 @@ const initialState: InternalStationState = {
   environment: { windSpeed: 15, temperature: -32, blizzard: false },
   timestamp: null,
   connected: false,
+  hoveredRoom: null,
 };
 
 export const useStationStore = create<StationStore>((set) => ({
@@ -94,4 +97,7 @@ export const useStationStore = create<StationStore>((set) => ({
         },
       };
     }),
+
+  setHoveredRoom: (id) =>
+    set((s) => ({ stationState: { ...s.stationState, hoveredRoom: id } })),
 }));

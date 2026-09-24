@@ -4,13 +4,31 @@ import { useEffect, useRef } from "react";
 import type { MeshStandardMaterial } from "three";
 import {
   fuelToStatus,
-  pressureToStatus,
   STATUS_COLORS,
   useStationStore,
   type RoomId,
   type SensorStatus,
   type StationStore,
 } from "@/lib/store";
+import Pipelines from "./Pipelines";
+
+const ROOM_META: Record<RoomId, { 
+  label: string; 
+  equipment: string[] 
+}> = {
+  habitat: {
+    label: "Habitat Module",
+    equipment: ["Bunk units (×8)", "Life support console", "Medical kit station"],
+  },
+  laboratory: {
+    label: "Research Laboratory",
+    equipment: ["Ice core drill", "Mass spectrometer", "Sample storage unit"],
+  },
+  workshop: {
+    label: "Engineering Workshop",
+    equipment: ["Hydraulic press", "Spare parts storage", "Welding station"],
+  },
+};
 
 const selectRoomStatus: Record<
   RoomId,
@@ -24,8 +42,11 @@ const selectRoomStatus: Record<
 const selectGeneratorStatus = (state: StationStore) =>
   fuelToStatus(state.stationState.generatorFuel);
 
-const selectPipelineStatus = (state: StationStore) =>
-  pressureToStatus(state.stationState.pipelinePressure);
+const GLASS_EMISSIVE: Record<SensorStatus, { color: string; intensity: number }> = {
+  normal:   { color: "#00ff88", intensity: 0.55 },
+  warning:  { color: "#f59e0b", intensity: 0.45 },
+  critical: { color: "#ef4444", intensity: 0.55 },
+};
 
 function useStatusMaterial(selectStatus: (state: StationStore) => SensorStatus) {
   const materialRef = useRef<MeshStandardMaterial>(null);
@@ -44,6 +65,35 @@ function useStatusMaterial(selectStatus: (state: StationStore) => SensorStatus) 
   return materialRef;
 }
 
+function useGlassStatusMaterial(
+  selectStatus: (state: StationStore) => SensorStatus,
+  roomId: RoomId
+) {
+  const materialRef = useRef<MeshStandardMaterial>(null);
+
+  useEffect(() => {
+    const apply = (status: SensorStatus, hovered: boolean) => {
+      if (!materialRef.current) return;
+      materialRef.current.emissive.set(GLASS_EMISSIVE[status].color);
+      materialRef.current.emissiveIntensity = hovered
+        ? GLASS_EMISSIVE[status].intensity * 2.8
+        : GLASS_EMISSIVE[status].intensity;
+      materialRef.current.opacity = hovered ? 0.90 : 0.68;
+    };
+
+    const getHovered = () =>
+      useStationStore.getState().stationState.hoveredRoom === roomId;
+
+    apply(selectStatus(useStationStore.getState()), getHovered());
+
+    return useStationStore.subscribe((state) =>
+      apply(selectStatus(state), state.stationState.hoveredRoom === roomId)
+    );
+  }, [selectStatus, roomId]);
+
+  return materialRef;
+}
+
 function RoomMesh({
   roomId,
   position,
@@ -53,16 +103,28 @@ function RoomMesh({
   position: [number, number, number];
   args: [number, number, number];
 }) {
-  const materialRef = useStatusMaterial(selectRoomStatus[roomId]);
+  const materialRef = useGlassStatusMaterial(selectRoomStatus[roomId], roomId);
+  const setHoveredRoom = useStationStore((s) => s.setHoveredRoom);
 
   return (
-    <mesh position={position} castShadow receiveShadow>
+    <mesh
+      position={position}
+      castShadow
+      receiveShadow
+      onPointerOver={(e) => { e.stopPropagation(); setHoveredRoom(roomId); }}
+      onPointerOut={() => setHoveredRoom(null)}
+    >
       <boxGeometry args={args} />
       <meshStandardMaterial
         ref={materialRef}
-        color={STATUS_COLORS.normal}
-        metalness={0.15}
+        color="#0d4535"
+        emissive="#00ff88"
+        emissiveIntensity={0.55}
+        transparent={true}
+        opacity={0.68}
         roughness={0.5}
+        metalness={0.1}
+        depthWrite={false}
       />
     </mesh>
   );
@@ -84,30 +146,6 @@ function GeneratorMesh() {
   );
 }
 
-function PipelineSegment({
-  position,
-  rotation,
-  args,
-}: {
-  position: [number, number, number];
-  rotation?: [number, number, number];
-  args: [number, number, number, number];
-}) {
-  const materialRef = useStatusMaterial(selectPipelineStatus);
-
-  return (
-    <mesh position={position} rotation={rotation} castShadow>
-      <cylinderGeometry args={args} />
-      <meshStandardMaterial
-        ref={materialRef}
-        color={STATUS_COLORS.normal}
-        metalness={0.55}
-        roughness={0.25}
-      />
-    </mesh>
-  );
-}
-
 export default function StationModel() {
   return (
     <group>
@@ -116,6 +154,7 @@ export default function StationModel() {
         <meshStandardMaterial color="#09090b" metalness={0.1} roughness={0.9} />
       </mesh>
 
+      <Pipelines />
       <RoomMesh roomId="habitat" position={[-2.4, 0.7, 0]} args={[2.4, 1.4, 2.2]} />
       <RoomMesh
         roomId="laboratory"
@@ -129,22 +168,6 @@ export default function StationModel() {
       />
 
       <GeneratorMesh />
-
-      <PipelineSegment
-        position={[2.1, 0.18, 0]}
-        rotation={[0, 0, Math.PI / 2]}
-        args={[0.08, 0.08, 3.2, 16]}
-      />
-      <PipelineSegment
-        position={[3.7, 0.18, 0.9]}
-        rotation={[Math.PI / 2, 0, 0]}
-        args={[0.08, 0.08, 1.8, 16]}
-      />
-      <PipelineSegment
-        position={[3.7, 0.18, -0.9]}
-        rotation={[Math.PI / 2, 0, 0]}
-        args={[0.08, 0.08, 1.8, 16]}
-      />
     </group>
   );
 }

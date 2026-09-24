@@ -55,7 +55,7 @@ export function ConnectivityToggle() {
   if (!status) return null;
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
+    <div className="w-full z-20 flex flex-col items-center">
       <button
         onClick={toggle}
         className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold shadow-lg transition-colors ${

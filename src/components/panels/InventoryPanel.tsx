@@ -43,7 +43,7 @@ export function InventoryPanel() {
   const openTickets = tickets.filter((t) => t.status === "open");
 
   return (
-    <div className="absolute top-4 right-4 z-10 w-80 rounded-lg bg-zinc-900/90 backdrop-blur p-4 text-white text-sm max-h-[80vh] overflow-y-auto">
+    <div className="w-full z-10 rounded-lg bg-zinc-900/90 backdrop-blur p-4 text-white text-sm max-h-[80vh] overflow-y-auto">
       <h2 className="font-bold mb-2">Logistics & Inventory</h2>
 
       {openTickets.length > 0 && (

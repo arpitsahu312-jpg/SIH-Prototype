@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useStationStore } from "@/lib/store";
 
 interface Message {
   role: "user" | "assistant";
@@ -15,6 +16,37 @@ export function StationAssistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stationState = useStationStore((s) => s.stationState);
+
+  const generatorFuel = stationState.generatorFuel;
+  const generatorOutput = stationState.generatorOutput;
+  const environment = stationState.environment;
+
+  const rules = [];
+  if (generatorFuel > 0 && generatorOutput / generatorFuel < 0.45) {
+    rules.push("⚡ Energy efficiency below optimal. Generator output-to-fuel ratio is low. Consider load balancing.");
+  }
+  if (environment.windSpeed > 40 && !environment.blizzard) {
+    rules.push("🌨 Wind speed elevated. Pre-position emergency supplies. Blizzard conditions possible within 6 hours.");
+  }
+  if (generatorFuel > 60 && !environment.blizzard) {
+    rules.push("🔧 Optimal maintenance window detected. All systems stable — schedule generator service now.");
+  }
+  if (generatorFuel < 40) {
+    const daysRemaining = generatorFuel / (100 / 30);
+    rules.push(`⛽ Resupply recommended. At current consumption rate, fuel reserves will reach critical in ~${daysRemaining.toFixed(1)} days.`);
+  }
+
+  const analysisSection = rules.length > 0 ? (
+    <div className="w-full flex flex-col gap-2 p-3 bg-[#080f1e] border-b border-[#1e3a5f]">
+      <div className="text-[10px] font-bold text-[#8b949e] uppercase tracking-wider">🤖 LIVE ANALYSIS</div>
+      {rules.map((rule, idx) => (
+        <div key={idx} className="bg-[#0a1628] border-l-[3px] border-l-[#58a6ff] border border-[#1e3a5f] p-2.5 text-[11px] text-[#e2e8f0] rounded-sm leading-snug">
+          {rule}
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -48,17 +80,22 @@ export function StationAssistant() {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="absolute bottom-4 right-[19rem] z-10 rounded-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 text-sm font-semibold shadow-lg"
-      >
-        🤖 Station Manual Assistant
-      </button>
+      <>
+        {analysisSection}
+        <button
+          onClick={() => setOpen(true)}
+          className="absolute bottom-4 right-[19rem] z-10 rounded-full bg-[#58a6ff] hover:bg-blue-400 text-white px-4 py-2 text-sm font-semibold shadow-lg"
+        >
+          🤖 Station Manual Assistant
+        </button>
+      </>
     );
   }
 
   return (
-    <div className="absolute bottom-4 right-[19rem] z-10 w-96 h-[28rem] rounded-lg bg-zinc-900/95 backdrop-blur flex flex-col shadow-xl">
+    <>
+      {analysisSection}
+      <div className="w-full h-[28rem] rounded-lg bg-zinc-900/95 backdrop-blur flex flex-col shadow-xl" style={{ borderTop: "1px solid #1e3a5f" }}>
       <div className="flex justify-between items-center p-3 border-b border-zinc-700">
         <div>
           <h2 className="font-bold text-white text-sm">Station Manual Assistant</h2>
@@ -109,5 +146,6 @@ export function StationAssistant() {
         </button>
       </div>
     </div>
+    </>
   );
 }
