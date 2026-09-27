@@ -16,12 +16,17 @@ export function KPIStrip() {
       color: pressureToStatus(s.pipelinePressure) === "normal" ? "#22c55e" : "#f59e0b" },
     { label: "GENERATOR",  value: `${s.generatorOutput.toFixed(0)} kW`,   color: "#58a6ff" },
   ];
+  const hasCritical = fuelToStatus(s.generatorFuel) === "critical"
+    || pressureToStatus(s.pipelinePressure) === "critical"
+    || s.environment.blizzard;
+
   return (
     <div style={{
-      height: "36px", background: "#060d1a",
-      borderBottom: "1px solid #1e3a5f",
+      height: "36px", background: hasCritical ? "rgba(239, 68, 68, 0.05)" : "#060d1a",
+      borderBottom: hasCritical ? "1px solid #ef4444" : "1px solid #1e3a5f",
       display: "flex", alignItems: "center",
       padding: "0 16px", flexShrink: 0,
+      transition: "background 0.3s ease, border-bottom 0.3s ease"
     }}>
       {kpis.map((kpi, i) => (
         <div key={kpi.label} style={{ display: "flex", alignItems: "center" }}>
@@ -39,6 +44,21 @@ export function KPIStrip() {
           )}
         </div>
       ))}
+      {hasCritical && (
+        <span style={{
+          marginLeft: "auto",
+          background: "#1a0808",
+          border: "1px solid #ef4444",
+          color: "#ef4444",
+          fontSize: "9px",
+          padding: "1px 7px",
+          borderRadius: "3px",
+          letterSpacing: "0.5px",
+          animation: "pulse 1.5s infinite",
+        }}>
+          ⚠ SYSTEM ALERT
+        </span>
+      )}
     </div>
   );
 }

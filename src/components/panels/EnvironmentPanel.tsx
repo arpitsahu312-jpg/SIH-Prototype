@@ -18,6 +18,7 @@ function riskLevel(windSpeed: number, temperature: number, blizzard: boolean): {
 
 export function EnvironmentPanel() {
   const environment = useStationStore((s) => s.stationState.environment);
+  const timestamp = useStationStore((s) => s.stationState.timestamp);
   const { windSpeed, temperature, blizzard } = environment;
   const risk = riskLevel(windSpeed, temperature, blizzard);
 
@@ -61,10 +62,16 @@ export function EnvironmentPanel() {
           <span style={{ color: tempTrendColor, fontSize: "10px", marginLeft: "4px" }}>{tempTrend}</span>
         </span>
       </div>
-      <div className="flex justify-between py-0.5">
+      <div className="flex justify-between py-0.5 mb-1">
         <span className="text-zinc-400">Blizzard</span>
         <span className={blizzard ? "text-red-400 font-semibold" : "text-zinc-200"}>
           {blizzard ? "ACTIVE" : "Clear"}
+        </span>
+      </div>
+      
+      <div className="mt-2 text-right">
+        <span style={{ fontSize: "8px", color: "#4a6380", fontFamily: "monospace" }}>
+          Last updated: {timestamp ? new Date(timestamp).toLocaleTimeString() : "--:--:--"}
         </span>
       </div>
     </div>

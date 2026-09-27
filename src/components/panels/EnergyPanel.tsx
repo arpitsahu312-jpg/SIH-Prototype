@@ -1,3 +1,10 @@
+/**
+ * EnergyPanel Component
+ * 
+ * Displays the current fuel level and power output of the station's generator.
+ * Fetches historical energy consumption data from the backend and plots it
+ * using a Recharts line graph, with support for different time windows (1h, 24h, 7d).
+ */
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -19,6 +26,7 @@ export function EnergyPanel() {
   const [window, setWindow] = useState<TimeWindow>("24h");
   const generatorFuel = useStationStore((s) => s.stationState.generatorFuel);
   const generatorOutput = useStationStore((s) => s.stationState.generatorOutput);
+  const timestamp = useStationStore((s) => s.stationState.timestamp);
 
   const prevOut = useRef(generatorOutput);
   useEffect(() => {
@@ -126,6 +134,12 @@ export function EnergyPanel() {
             <Line type="monotone" dataKey="fuelLevel" stroke="#22c55e" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      <div className="mt-2 text-right">
+        <span style={{ fontSize: "8px", color: "#4a6380", fontFamily: "monospace" }}>
+          Last updated: {timestamp ? new Date(timestamp).toLocaleTimeString() : "--:--:--"}
+        </span>
       </div>
     </div>
   );

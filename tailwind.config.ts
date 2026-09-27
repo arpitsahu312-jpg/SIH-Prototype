@@ -65,7 +65,16 @@ const config: Config = {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
-  		}
+  		},
+		keyframes: {
+			shimmer: {
+				'0%': { transform: 'translateX(-100%)' },
+				'100%': { transform: 'translateX(100%)' }
+			}
+		},
+		animation: {
+			shimmer: 'shimmer 2s infinite linear'
+		}
   	}
   },
   plugins: [require("tailwindcss-animate")],

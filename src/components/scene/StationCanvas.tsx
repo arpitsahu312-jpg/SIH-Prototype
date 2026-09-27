@@ -6,34 +6,26 @@ import StationModel from "./StationModel";
 
 export default function StationCanvas() {
   return (
-    <Canvas className="h-full w-full" shadows gl={{ antialias: true }}>
-      <OrthographicCamera makeDefault position={[14, 14, 14]} zoom={120} near={0.1} far={500} />
-      <color attach="background" args={["#020617"]} />
-      <fog attach="fog" args={["#020617", 40, 80]} />
+    <Canvas className="h-full w-full" gl={{ antialias: true }}>
+      <OrthographicCamera makeDefault position={[6, 35, 6]} zoom={120} near={0.1} far={500} />
+      <color attach="background" args={["#020917"]} />
+      <fog attach="fog" args={["#020917", 30, 58]} />
 
-      <ambientLight intensity={0.8} />
-      <directionalLight
-        position={[8, 12, 6]}
-        intensity={2.2}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[8, 12, 6]} intensity={1.6} />
       <directionalLight position={[-6, 4, -8]} intensity={0.35} color="#93c5fd" />
 
-      {/* Interior room lights */}
-      <pointLight position={[-2.4, 0.7, 0]}   color="#00ff88" intensity={12} distance={5} decay={2} />
-      <pointLight position={[0.4,  0.55, 1.6]} color="#00ff88" intensity={10} distance={4.5} decay={2} />
-      <pointLight position={[0.2,  0.5, -1.8]} color="#00ff88" intensity={9}  distance={4.5} decay={2} />
+      <pointLight position={[-1.4, 0.78, 0.45]} color="#00e5ff" intensity={8} distance={5} decay={2} />
+      <pointLight position={[1.4, 0.78, -0.45]} color="#00e5ff" intensity={8} distance={5} decay={2} />
+      <pointLight position={[0, 1.52, 0]} color="#00e5ff" intensity={8} distance={5} decay={2} />
 
       <StationModel />
 
       <OrbitControls
-        enableDamping
+        enableDamping={true}
         dampingFactor={0.05}
         enableRotate={true}
-        minPolarAngle={Math.PI / 6}
-        maxPolarAngle={Math.PI / 2.8}
+        enableZoom={true}
         minZoom={30}
         maxZoom={140}
         enablePan={true}

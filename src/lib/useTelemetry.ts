@@ -1,3 +1,9 @@
+/**
+ * useTelemetry Hook
+ * 
+ * Establishes a WebSocket connection to the local edge server to receive 
+ * real-time telemetry data. Handles automatic reconnection and parsing.
+ */
 "use client";
 
 import { useEffect, useRef } from "react";
@@ -13,14 +19,19 @@ export function useTelemetry() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false; // Flag to prevent state updates if unmounted
 
+    /**
+     * connect
+     * Instantiates the WebSocket and sets up event listeners.
+     */
     function connect() {
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
 
+      // Parse incoming messages and push them to the Zustand store
       ws.onmessage = (event) => {
         try {
           const data: BackendTelemetry = JSON.parse(event.data);
@@ -30,6 +41,7 @@ export function useTelemetry() {
         }
       };
 
+      // On disconnect, schedule a reconnection attempt
       ws.onclose = () => {
         setConnected(false);
         if (!cancelled) reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
@@ -40,6 +52,7 @@ export function useTelemetry() {
 
     connect();
 
+    // Cleanup function runs on unmount
     return () => {
       cancelled = true;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
